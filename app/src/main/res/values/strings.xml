@@ -72,7 +72,7 @@
     <string name="later">나중에</string>
     <string name="scan_area_description">주소 인식 영역</string>
     <string name="camera_description">카메라</string>
-    <string name="waiting_candidates">주소 후보를 찾는 중입니다</string>
+    <string name="waiting_candidates">주소 인식을 기다리고 있습니다</string>
     <string name="pause_scan">일시정지</string>
     <string name="resume_scan">재개</string>
     <string name="dictionary_load_failed">내장 주소 사전을 불러오지 못해 기본 인식으로 동작합니다.</string>
@@ -98,7 +98,7 @@
     <string name="selection_changed">영역을 변경했습니다. ‘선택 영역 인식’을 눌러주세요.</string>
     <string name="selection_not_found">선택한 영역에서 주소를 찾지 못했습니다. 영역을 조절한 뒤 다시 인식해 주세요.</string>
     <string name="developer_mode">개발자 모드</string>
-    <string name="processed_crop">실제로 OCR에 전달한 영역</string>
+    <string name="processed_crop">OCR 입력 영역 — 주소 검색 결과가 아닙니다</string>
     <string name="developer_mode_summary">OCR 원문·처리 영역·추출 주소·검색 결과와 실패 단계를 화면에서만 확인합니다.</string>
     <string name="recognized_details">상세주소·건물: %1$s</string>
     <string name="address_network_error">주소 서버에 연결하지 못했습니다. %1$s</string>

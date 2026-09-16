@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     private var lastRetryAt = 0L
     private var diagnosticArea = ""
     private var diagnosticExtraction = ""
+    private var diagnosticStructure = ""
     private val diagnostics = ScanDiagnostics()
     private var lastSubmittedKey: String? = null
     private var latestRawCandidates = emptyList<AddressCandidate>()
@@ -386,7 +387,11 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             val bitmap = binding.frozenSelection.cropSelection()
-            if (bitmap == null) { processingFrame.set(false); return }
+            if (bitmap == null) {
+                processingFrame.set(false); diagnostics.observe(false, false); updateDiagnostics()
+                binding.statusText.setText(R.string.selection_not_found)
+                return
+            }
             diagnosticArea = "freeze 원본 ROI ${binding.frozenSelection.selectionBounds()}, ${bitmap.width}×${bitmap.height}"
             processCroppedBitmap(bitmap, 0, bitmap.width, bitmap.height, generation,
                 SystemClock.elapsedRealtime(), retry = true, frozen = true)
@@ -402,9 +407,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateDiagnostics() {
+        binding.candidateEmptyText.text = diagnostics.candidateMessage
         binding.developerText.isVisible = developerMode
         binding.developerText.text = if (!developerMode) "" else
-            "OCR 원문: $lastOcrSourceText\n실제 처리 영역: $diagnosticArea\n추출 기본주소: $diagnosticExtraction\nOCR 상태: ${diagnostics.ocrStage}\nAPI 요청 주소: ${diagnostics.request}\n검색 상태: ${diagnostics.searchStage}\n검색 결과/실패 원인: ${diagnostics.result}"
+            "OCR 원문: $lastOcrSourceText\n실제 처리 영역: $diagnosticArea\n추출 주소/상세주소: $diagnosticExtraction\nOCR 상태: ${diagnostics.ocrStage}\nAPI 요청 주소: ${diagnostics.request}\n검색 상태: ${diagnostics.searchStage}\n검색 결과/실패 원인: ${diagnostics.result}\n줄·요소 연결 진단:\n$diagnosticStructure\n아래 이미지는 OCR 입력 영역입니다. 검색 결과가 아닙니다."
         binding.developerCrop.isVisible = developerMode && diagnosticBitmap != null
         if (!developerMode) {
             clearDiagnosticImage()
@@ -412,6 +418,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun clearDiagnosticImage() {
+        diagnosticStructure = ""
         binding.developerCrop.setImageDrawable(null)
         binding.developerCrop.isVisible = false
         diagnosticBitmap?.recycle(); diagnosticBitmap = null
@@ -549,32 +556,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun extractBlocksFromScanWindow(text: Text, width: Int, height: Int): List<FramedBlock> {
+    private fun extractBlocksFromScanWindow(text: Text, width: Int, height: Int): List<OcrAddressBlock> {
         val safeBounds = Rect(1, 1, width - 1, height - 1)
-        val lines = text.textBlocks.flatMap { it.lines }.flatMap { line ->
-            // Split distant words within a single ML Kit line before spatial grouping.
-            val groups = mutableListOf<MutableList<Text.Element>>()
-            line.elements.forEach { element ->
-                val box = element.boundingBox ?: return@forEach
-                if (!safeBounds.contains(box)) return@forEach
-                val previous = groups.lastOrNull()?.lastOrNull()?.boundingBox
-                if (previous == null || box.left - previous.right > maxOf(previous.height(), box.height()) * 1.8f)
-                    groups += mutableListOf(element) else groups.last() += element
-            }
-            groups.map { group ->
-                val bounds = Rect(group.first().boundingBox!!)
-                group.drop(1).forEach { bounds.union(it.boundingBox!!) }
-                OcrLine(group.joinToString(" ") { it.text }, FloatBox(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(), bounds.bottom.toFloat()))
+        val rows = text.textBlocks.flatMap { it.lines }.map { line ->
+            line.elements.mapNotNull { element ->
+                val box = element.boundingBox ?: return@mapNotNull null
+                if (!safeBounds.contains(box)) return@mapNotNull null
+                OcrLine(element.text, FloatBox(box.left.toFloat(), box.top.toFloat(), box.right.toFloat(), box.bottom.toFloat()))
             }
         }
-        return OcrLineAssembler.assemble(lines).map { block ->
-            FramedBlock(block.text, (block.box.left + block.box.right) / 2 / width,
-                (block.box.top + block.box.bottom) / 2 / height)
-        }
+        val trace = if (developerMode) mutableListOf<String>() else null
+        return OcrLineAssembler.assembleElements(rows, trace).also { diagnosticStructure = trace?.joinToString("\n").orEmpty() }
     }
 
     private fun processCroppedBitmap(bitmap: Bitmap, rotation: Int, width: Int, height: Int,
                                      generation: Long, now: Long, retry: Boolean, frozen: Boolean) {
+        runOnUiThread {
+            if (!isDestroyed && synchronized(candidateInputLock) { generation == candidateGeneration }) {
+                diagnostics.startRecognition(); updateDiagnostics()
+            }
+        }
         if (developerMode) {
             val factor = minOf(1f, 360f / maxOf(bitmap.width, bitmap.height))
             val thumbnail = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height,
@@ -594,13 +595,15 @@ class MainActivity : AppCompatActivity() {
                 (frozen || !scannerPaused) && synchronized(candidateInputLock) { generation == candidateGeneration }
         }, result = { text, retried -> runOnUiThread {
             if (isDestroyed || editingAddress || synchronized(candidateInputLock) { generation != candidateGeneration }) return@runOnUiThread
+            diagnostics.startExtraction(); updateDiagnostics()
+            diagnosticStructure = ""
             val blocks = text?.let { extractBlocksFromScanWindow(it, width, height) }.orEmpty()
             lastOcrSourceText = text?.text.orEmpty()
             lastReconstructedText = AddressTextParser.restoreStructuredText(lastOcrSourceText)
             // Start structure-only lookup BEFORE the dictionary executor (including initial loading).
-            val rawCandidates = RawAddressCandidates.fromBlocks(blocks.map { it.text }, currentRegion)
+            val rawCandidates = RawAddressCandidates.fromSpatialBlocks(blocks, currentRegion)
             latestRawCandidates = rawCandidates
-            diagnosticExtraction = rawCandidates.joinToString("\n") { it.text }
+            diagnosticExtraction = rawCandidates.joinToString("\n") { "기본: ${it.text} / 상세: ${it.details}" }
             diagnostics.observe(lastOcrSourceText.isNotBlank(), rawCandidates.any { it.completeness == CandidateCompleteness.COMPLETE })
             if (retried) diagnosticArea += " · 대비 보정 1회"
             updateDiagnostics()
@@ -609,7 +612,7 @@ class MainActivity : AppCompatActivity() {
         } }, finished = { processingFrame.set(false) })
     }
 
-    private fun scheduleCandidateCalculation(blocks: List<FramedBlock>, now: Long) {
+    private fun scheduleCandidateCalculation(blocks: List<OcrAddressBlock>, now: Long) {
         val shouldStartWorker = synchronized(candidateInputLock) {
             pendingCandidateInput = CandidateInput(
                 blocks = blocks,
@@ -655,7 +658,7 @@ class MainActivity : AppCompatActivity() {
         val blocks = input.blocks
         if (blocks.isEmpty()) return emptyList()
         val engine = candidateEngine
-        val raw = RawAddressCandidates.fromBlocks(blocks.map { it.text }, input.region)
+        val raw = RawAddressCandidates.fromSpatialBlocks(blocks, input.region)
         // Dictionary alternatives are for explicit selection only, never automatic lookup.
         val corrected = blocks.flatMap { block -> engine?.candidates(listOf(block.text), input.region).orEmpty() }
             .map { it.copy(manualOnly = true) }
@@ -720,7 +723,7 @@ class MainActivity : AppCompatActivity() {
                 text = when {
                     candidate.manualOnly && candidate.alternativeTarget.isNotBlank() ->
                         getString(R.string.similar_address_manual, candidate.text) + "\n→ ${candidate.alternativeTarget}"
-                    candidate.manualOnly -> "사전 후보 · 직접 선택\n${candidate.text}"
+                    candidate.manualOnly -> (candidate.reviewReason.ifBlank { "사전 후보" }) + " · 직접 선택\n${candidate.text}"
                     selected -> getString(R.string.candidate_selected, candidate.text)
                     candidate.completeness == CandidateCompleteness.PARTIAL ->
                         getString(R.string.candidate_partial, candidate.text)
@@ -1116,14 +1119,12 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private data class FramedBlock(val text: String, val centerX: Float, val centerY: Float)
-
     private data class ScanWindow(
         val bounds: ScanPixelBounds, val rotation: Int, val radiusX: Float, val radiusY: Float
     )
 
     private data class CandidateInput(
-        val blocks: List<FramedBlock>,
+        val blocks: List<OcrAddressBlock>,
         val now: Long,
         val region: RegionSelection,
         val generation: Long,

@@ -12,7 +12,8 @@ data class AddressCandidate(
     val verified: Boolean = false,
     val details: String = "",
     val manualOnly: Boolean = false,
-    val alternativeTarget: String = ""
+    val alternativeTarget: String = "",
+    val reviewReason: String = ""
 )
 
 data class AddressParts(
@@ -33,10 +34,10 @@ object AddressTextParser {
     private const val PREFIX = "(?:[가-힣0-9]+(?:$PROVINCE_SUFFIX|$DISTRICT_SUFFIX|읍|면)\\s+)*"
 
     private val parcelAddress = Regex(
-        "$PREFIX([가-힣][가-힣0-9]*$LOCALITY_SUFFIX)\\s*(산\\s*)?($NUMBER)(?:\\s*번지)?(?![\\d-]|\\s*(?:동|층|호))"
+        "$PREFIX([가-힣][가-힣0-9]*$LOCALITY_SUFFIX)\\s*(산\\s*)?($NUMBER)(?:\\s*번지)?(?!\\d|\\s*(?:-|동|층|호))"
     )
     private val roadAddress = Regex(
-        "$PREFIX([가-힣0-9]+$ROAD_SUFFIX)\\s*($NUMBER)(?![\\d-]|\\s*(?:동|층|호))"
+        "$PREFIX([가-힣0-9]+$ROAD_SUFFIX)\\s*($NUMBER)(?!\\d|\\s*(?:-|동|층|호))"
     )
     private val addressNameOnly = Regex(
         "^(?:[가-힣0-9]+(?:$PROVINCE_SUFFIX|$DISTRICT_SUFFIX|읍|면)\\s+)*" +
@@ -45,7 +46,18 @@ object AddressTextParser {
     private val numberOnly = Regex("^(?:산\\s*)?\\d{1,5}(?:\\s*-\\s*\\d{1,5})?(?:\\s*번지)?$")
     private val subNumberOnly = Regex("^-\\s*\\d{1,5}$")
     private val phoneLike = Regex("(?:01[016789]|0\\d{1,2})[- ]?\\d{3,4}[- ]?\\d{4}")
-    private val postalCodeLine = Regex("^\\d{5}$")
+    private val nonAddressLabel = Regex("^(?:성명|이름|전화|휴대폰|연락처|TEL|FAX|우편번호|우편|ZIP|부서|부서명|배송\\s*메모|배송\\s*요청사항)(?:(?:\\s*[:：]\\s*|\\s+).*|$)", RegexOption.IGNORE_CASE)
+
+    internal fun isNonAddressLine(text: String): Boolean =
+        nonAddressLabel.matches(text.trim()) || phoneLike.matches(text.trim()) ||
+            Regex("^\\(?우\\)?\\s*[:：]?\\s*\\d{5}$").matches(text.trim())
+
+    internal fun startsWithBaseNumber(text: String): Boolean {
+        val normalized = normalizeOcrText(text).trim()
+        if (isNonAddressLine(text) || phoneLike.containsMatchIn(normalized)) return false
+        return Regex("^(?:산\\s*)?$NUMBER(?:\\s*번지)?(?!\\d|\\s*(?:-|동|층|호))(?=\\s|[,.(]|$)")
+            .containsMatchIn(normalized)
+    }
 
     fun extract(rawText: String): String? = extractCandidate(rawText)?.text
 
@@ -84,7 +96,8 @@ object AddressTextParser {
             splitBlocks(sample).forEach { block ->
                 val blockLines = cleanLines(block)
                 variants += restoreStructuredText(block).replace('\n', ' ')
-                variants += block
+                variants += blockLines.joinToString("\n")
+                variants += restoreStructuredText(block).replace('\n', ' ')
                 variants.addAll(blockLines)
                 variants += blockLines.joinToString(" ")
                 addAdjacentLineRepairs(blockLines, variants)
@@ -124,21 +137,31 @@ object AddressTextParser {
         }
     }
 
-    private fun repairRoadAcrossSamples(left: String, right: String): String? {
-        val leftMatch = Regex("^(?:(?:[가-힣0-9]+(?:$PROVINCE_SUFFIX|$DISTRICT_SUFFIX|읍|면))\\s+)*([가-힣]{1,12})$")
-            .matchEntire(left) ?: return null
+    internal fun repairRoadAcrossSamples(left: String, right: String): String? {
+        val normalizedLeft = normalizeOcrText(left).trim()
+        val leftMatch = Regex("^(?:(?:[가-힣0-9]+(?:$PROVINCE_SUFFIX|$DISTRICT_SUFFIX|읍|면))\\s+)*([가-힣][가-힣0-9]{0,24})$")
+            .matchEntire(normalizedLeft) ?: return null
         val unfinishedName = leftMatch.groupValues[1]
         if (Regex("(?:$PROVINCE_SUFFIX|$DISTRICT_SUFFIX|$LOCALITY_SUFFIX|$ROAD_SUFFIX)$")
                 .containsMatchIn(unfinishedName)) {
             return null
         }
-        val continuation = Regex("^([가-힣0-9]{1,6}(?:대로|로|길))\\s*($NUMBER)(?=\\s|\\(|$)")
+        val continuation = Regex("^([가-힣0-9]{0,4}(?:대로|로|길))\\s*($NUMBER)(?!\\d|\\s*(?:-|동|층|호))(?=\\s|\\(|,|$)")
             .find(right) ?: return null
         // A complete-looking road word is not treated as a continuation. Typical split pieces
         // start with a suffix-bearing short fragment such as '동로' or '로12길'.
         val fragment = continuation.groupValues[1]
         if (fragment.length > 4 && !fragment.startsWith("로")) return null
-        return "$left${fragment} ${continuation.groupValues[2]}"
+        return "$normalizedLeft${fragment} ${continuation.groupValues[2]}" + right.substring(continuation.range.last + 1)
+    }
+
+    internal fun repairNumberAcrossSamples(left: String, right: String): String? {
+        val before = normalizeOcrText(left).trimEnd()
+        val after = normalizeOcrText(right).trimStart()
+        if (!before.endsWith('-') || !startsWithBaseNumber(after) || after.startsWith("산")) return null
+        val base = parseParts(before.dropLast(1)) ?: return null
+        if (base.number == null || '-' in base.number) return null
+        return before + after
     }
 
     fun parseParts(address: String): AddressParts? {
@@ -175,7 +198,10 @@ object AddressTextParser {
             val restored = mutableListOf(lines.first())
             lines.drop(1).forEach { line ->
                 val previous = restored.last()
-                if (shouldJoinWithoutSpace(previous, line)) {
+                val numberRepair = repairNumberAcrossSamples(previous, line)
+                if (numberRepair != null) {
+                    restored[restored.lastIndex] = numberRepair
+                } else if (shouldJoinWithoutSpace(previous, line)) {
                     restored[restored.lastIndex] = previous + line
                 } else restored += line
             }
@@ -231,7 +257,7 @@ object AddressTextParser {
 
     private fun cleanLines(block: String): List<String> = block.lineSequence()
         .map { it.replace(Regex("\\s+"), " ").trim() }
-        .filter { it.isNotEmpty() && !phoneLike.matches(it) && !postalCodeLine.matches(it) }
+        .filter { it.isNotEmpty() && !isNonAddressLine(it) }
         .toList()
 
     private fun addAdjacentLineRepairs(lines: List<String>, variants: MutableSet<String>) {
@@ -244,6 +270,7 @@ object AddressTextParser {
             }
             // A road word split at a line boundary, e.g. "광덕" / "동로 25".
             repairRoadAcrossSamples(first, second)?.let(variants::add)
+            repairNumberAcrossSamples(first, second)?.let(variants::add)
         }
     }
 
@@ -259,7 +286,9 @@ object AddressTextParser {
             (openParentheses && previous.matches(Regex(".*[가-힣]$")) && next.matches(Regex("^[가-힣].*")))
     }
 
-    private fun splitBlocks(text: String): List<String> = text.split(Regex("\\n\\s*\\n+"))
+    private fun splitBlocks(text: String): List<String> = text.lineSequence()
+        .joinToString("\n") { if (isNonAddressLine(it)) "\n" else it }
+        .split(Regex("\\n\\s*\\n+"))
 
     private fun prefixTokens(value: String, name: String): List<String> =
         value.substringBefore(name).trim().split(Regex("\\s+")).filter(String::isNotBlank)

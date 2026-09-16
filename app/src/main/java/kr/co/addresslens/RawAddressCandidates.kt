@@ -2,8 +2,18 @@ package kr.co.addresslens
 
 /** Fast, structure-only path. No dictionary lookup or inferred spelling changes. */
 object RawAddressCandidates {
+    internal fun fromSpatialBlocks(blocks: List<OcrAddressBlock>, region: RegionSelection): List<AddressCandidate> = blocks
+        .flatMap { block -> fromBlocks(listOf(block.text), region).map { it.copy(manualOnly = it.manualOnly || block.requiresConfirmation,
+            reviewReason = if (block.requiresConfirmation) "우편번호/번지 확인 필요" else it.reviewReason) } }
+        .distinctBy(CandidateTracker::identity).take(5)
+
     fun fromBlocks(blocks: List<String>, region: RegionSelection): List<AddressCandidate> = blocks
-        .flatMap { AddressTextParser.extractCandidates(it, includePartial = true) }
+        .flatMap { block -> AddressTextParser.extractCandidates(block, includePartial = true).map { candidate ->
+            val number = AddressTextParser.parseParts(candidate.text)?.number
+            // A five-digit number on its own line may be a postal code. Keep it, but ask for confirmation.
+            if (number != null && number.matches(Regex("\\d{5}")) && block.lineSequence().any { it.trim() == number })
+                candidate.copy(manualOnly = true, reviewReason = "우편번호/번지 확인 필요") else candidate
+        } }
         .map { withDefaultRegion(it, region) }
         .distinctBy(CandidateTracker::identity)
         .take(5)

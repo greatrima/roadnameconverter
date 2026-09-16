@@ -109,14 +109,14 @@
             android:paddingTop="4dp" android:paddingBottom="6dp" app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintWidth_max="@dimen/main_content_max_width">
-            <com.google.android.material.button.MaterialButton android:id="@+id/scanAgainButton"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="6dp"
-                android:minHeight="52dp" android:text="@string/scan_again" app:cornerRadius="12dp" />
             <com.google.android.material.button.MaterialButton android:id="@+id/convertButton"
                 android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                android:layout_marginStart="6dp" android:minHeight="52dp" android:text="@string/convert"
+                android:layout_marginEnd="6dp" android:minHeight="52dp" android:text="@string/convert"
                 android:textColor="@color/white" app:cornerRadius="12dp" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/scanAgainButton"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp"
+                android:minHeight="52dp" android:text="@string/scan_again" app:cornerRadius="12dp" />
         </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
     <LinearLayout android:id="@+id/permissionPanel" android:layout_width="0dp" android:layout_height="0dp"

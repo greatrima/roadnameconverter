@@ -15,9 +15,9 @@ iOS의 경우 개발자 등록부터 돈이 들어서 가난한 9급은 그런 �
 
 ## Android 소스 코드
 
-v1.12.1 소스와 내장 주소 사전을 공개합니다. APK 설치 파일은 [Releases](https://github.com/greatrima/roadnameconverter/releases)에서 받으실 수 있습니다.
+v2.0.0 소스와 내장 주소 사전을 공개합니다. 배포된 APK 설치 파일은 [Releases](https://github.com/greatrima/roadnameconverter/releases)에서 확인하실 수 있습니다.
 
-이번 버전은 완성된 원문 주소를 사전·연속 인식 대기 없이 먼저 검색하고, 정확한 API 일치 결과만 확정합니다. 사전 교정 후보는 수동 선택으로 구분하며, 개발자 모드의 OCR 상태와 검색 상태를 분리했습니다. [v1.12.1 패치노트](FAST_SEARCH_PATCH_NOTES.md)
+이번 버전은 여러 줄 주소 복원과 하이픈으로 끊긴 부번 처리를 개선했습니다. 미완성 번지를 본번만으로 검색하지 않으며 정확한 API 일치 결과만 확정합니다. 하단 버튼은 왼쪽 주소 변환 / 오른쪽 다시 인식 순서입니다. [v2.0.0 패치노트](RELEASE_NOTES_v2.0.0.md)
 
 ### 직접 빌드하기
 
