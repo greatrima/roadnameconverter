@@ -1,0 +1,3 @@
+# Copy to local.properties (ignored by Git). Android Studio can set sdk.dir.
+# Never commit real API credentials.
+VWORLD_API_KEY=

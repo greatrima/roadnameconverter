@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AddressLens" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/blue</item>
+        <item name="colorPrimaryVariant">@color/blue_dark</item>
+        <item name="colorSecondary">@color/mint</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/navy</item>
+        <item name="android:navigationBarColor">@color/navy</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

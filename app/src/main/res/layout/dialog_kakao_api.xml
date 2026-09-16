@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="24dp">
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/kakaoApiKeyLayout"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/kakao_rest_api_key">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/kakaoApiKeyInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textPassword"
+            android:maxLines="1" />
+    </com.google.android.material.textfield.TextInputLayout>
+</LinearLayout>

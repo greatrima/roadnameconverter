@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="camera_viewport_height">120dp</dimen>
+    <dimen name="main_content_max_width">640dp</dimen>
+    <dimen name="main_horizontal_padding">16dp</dimen>
+    <dimen name="header_top_padding">12dp</dimen>
+    <dimen name="scan_frame_min_height">72dp</dimen>
+    <dimen name="scan_frame_max_height">104dp</dimen>
+    <dimen name="result_panel_max_height">300dp</dimen>
+    <dimen name="result_panel_horizontal_padding">20dp</dimen>
+    <dimen name="result_panel_bottom_padding">16dp</dimen>
+</resources>
