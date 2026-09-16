@@ -70,9 +70,9 @@ class MainActivity : AppCompatActivity() {
     private var lastRetryAt = 0L
     private var diagnosticArea = ""
     private var diagnosticExtraction = ""
-    private var diagnosticSearch = ""
-    private var diagnosticStage = ""
+    private val diagnostics = ScanDiagnostics()
     private var lastSubmittedKey: String? = null
+    private var latestRawCandidates = emptyList<AddressCandidate>()
     private val apiAlternatives = mutableMapOf<String, AddressResult>()
     private var frameSequence = 0L
     private lateinit var networkAvailability: NetworkAvailability
@@ -99,8 +99,6 @@ class MainActivity : AppCompatActivity() {
     private var displayedCandidates = emptyList<AddressCandidate>()
     private var renderedCandidateKey = ""
     private var candidateTouchActive = false
-    private var nextSignature: String? = null
-    private var nextCount = 0
     private var lastOcrSourceText = ""
     private var lastReconstructedText = ""
     private var pendingCandidateInput: CandidateInput? = null
@@ -200,13 +198,14 @@ class MainActivity : AppCompatActivity() {
                 conversionRequests.invalidate()
                 selectedCandidate = null
                 lastSubmittedKey = null
+                latestRawCandidates = emptyList()
                 apiAlternatives.clear()
                 awaitingNetwork = false
                 candidateTracker.clear()
                 renderCandidates(emptyList())
                 addressInput.text?.clear()
                 detailText.text = ""; detailText.isVisible = false
-                lastOcrSourceText = ""; diagnosticExtraction = ""; diagnosticSearch = ""; diagnosticStage = "영역 변경"
+                lastOcrSourceText = ""; diagnosticExtraction = ""; diagnostics.reset("영역 변경")
                 clearDiagnosticImage()
                 updateDiagnostics()
                 currentMapAddress = null
@@ -221,6 +220,7 @@ class MainActivity : AppCompatActivity() {
                 editingAddress = true
                 invalidateCandidateWork()
                 conversionRequests.invalidate()
+                diagnostics.finish("편집 중 · 검색 취소", ""); updateDiagnostics()
                 convertButton.isEnabled = true
             }
         }
@@ -229,6 +229,7 @@ class MainActivity : AppCompatActivity() {
                 editingAddress = true
                 invalidateCandidateWork()
                 conversionRequests.invalidate()
+                diagnostics.finish("편집 중 · 검색 취소", ""); updateDiagnostics()
                 currentMapAddress = null
                 mapButton.isEnabled = false
                 convertButton.isEnabled = true
@@ -403,7 +404,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateDiagnostics() {
         binding.developerText.isVisible = developerMode
         binding.developerText.text = if (!developerMode) "" else
-            "OCR 원문: $lastOcrSourceText\n실제 처리 영역: $diagnosticArea\n추출 주소: $diagnosticExtraction\n검색 결과: $diagnosticSearch\n단계: $diagnosticStage"
+            "OCR 원문: $lastOcrSourceText\n실제 처리 영역: $diagnosticArea\n추출 기본주소: $diagnosticExtraction\nOCR 상태: ${diagnostics.ocrStage}\nAPI 요청 주소: ${diagnostics.request}\n검색 상태: ${diagnostics.searchStage}\n검색 결과/실패 원인: ${diagnostics.result}"
         binding.developerCrop.isVisible = developerMode && diagnosticBitmap != null
         if (!developerMode) {
             clearDiagnosticImage()
@@ -596,9 +597,14 @@ class MainActivity : AppCompatActivity() {
             val blocks = text?.let { extractBlocksFromScanWindow(it, width, height) }.orEmpty()
             lastOcrSourceText = text?.text.orEmpty()
             lastReconstructedText = AddressTextParser.restoreStructuredText(lastOcrSourceText)
-            diagnosticStage = if (lastOcrSourceText.isBlank()) "OCR" else "주소 추출"
+            // Start structure-only lookup BEFORE the dictionary executor (including initial loading).
+            val rawCandidates = RawAddressCandidates.fromBlocks(blocks.map { it.text }, currentRegion)
+            latestRawCandidates = rawCandidates
+            diagnosticExtraction = rawCandidates.joinToString("\n") { it.text }
+            diagnostics.observe(lastOcrSourceText.isNotBlank(), rawCandidates.any { it.completeness == CandidateCompleteness.COMPLETE })
             if (retried) diagnosticArea += " · 대비 보정 1회"
             updateDiagnostics()
+            onRawCandidateFrame(rawCandidates, now)
             scheduleCandidateCalculation(blocks, now)
         } }, finished = { processingFrame.set(false) })
     }
@@ -630,7 +636,7 @@ class MainActivity : AppCompatActivity() {
         val batch = candidatesFromRecentFrames(input)
         val isLatest = synchronized(candidateInputLock) { input.generation == candidateGeneration && input.sequence == frameSequence }
         if (isLatest) {
-            onCandidateFrame(batch.candidates, input.now, batch.dictionaryBacked, input.generation, input.sequence)
+            onCandidateFrame(batch, input.now, input.generation, input.sequence)
         }
 
         val hasPendingInput = synchronized(candidateInputLock) {
@@ -645,66 +651,52 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun candidatesFromRecentFrames(input: CandidateInput): CandidateBatch {
+    private fun candidatesFromRecentFrames(input: CandidateInput): List<AddressCandidate> {
         val blocks = input.blocks
-        if (blocks.isEmpty()) return CandidateBatch(emptyList(), dictionaryReady)
+        if (blocks.isEmpty()) return emptyList()
         val engine = candidateEngine
-        val dictionaryBacked = engine != null && dictionaryReady
-        // Restore only spatially joined lines from THIS frame. Never combine past addresses.
-        val grouped = blocks.map { listOf(it.text) }
-        val candidates = grouped.flatMap { samples ->
-            engine?.candidates(samples, input.region)
-                ?: AddressTextParser.extractCandidatesFromOcrSamples(samples, includePartial = true)
-        }.distinctBy(CandidateTracker::identity).take(MAX_ADDRESS_CANDIDATES)
-        return CandidateBatch(candidates, dictionaryBacked)
+        val raw = RawAddressCandidates.fromBlocks(blocks.map { it.text }, input.region)
+        // Dictionary alternatives are for explicit selection only, never automatic lookup.
+        val corrected = blocks.flatMap { block -> engine?.candidates(listOf(block.text), input.region).orEmpty() }
+            .map { it.copy(manualOnly = true) }
+        return (raw + corrected).distinctBy(CandidateTracker::identity).take(MAX_ADDRESS_CANDIDATES)
+    }
+
+    private fun onRawCandidateFrame(incoming: List<AddressCandidate>, now: Long) {
+        if (candidateTouchActive || editingAddress || binding.addressInput.hasFocus() ||
+            (!frozenFrame && SystemClock.elapsedRealtime() - now > 1_500L)) return
+        if (!continuousScan && selectedCandidate != null) return
+        if (selectedCandidate == null) renderCandidates(candidateTracker.update(incoming, now))
+        if (frozenFrame && incoming.isEmpty()) binding.statusText.setText(R.string.selection_not_found)
+        autoConversion.update(incoming, selectedCandidate, SystemClock.elapsedRealtime())?.let { candidate ->
+            candidateTracker.unfreeze(keepVisible = true)
+            acceptCandidate(candidate, manual = false)
+        }
     }
 
     private fun onCandidateFrame(
         incoming: List<AddressCandidate>,
         now: Long,
-        dictionaryBacked: Boolean,
         generation: Long,
         sequence: Long
     ) {
         runOnUiThread {
-            if (isFinishing || isDestroyed || (scannerPaused && !frozenFrame) || candidateTouchActive ||
+            if (isFinishing || isDestroyed || (scannerPaused && !frozenFrame && selectedCandidate == null) || candidateTouchActive ||
                 editingAddress || binding.addressInput.hasFocus() ||
                 (!frozenFrame && SystemClock.elapsedRealtime() - now > 1_500L) ||
                 synchronized(candidateInputLock) { generation != candidateGeneration || sequence != frameSequence }) {
                 return@runOnUiThread
             }
             val selected = selectedCandidate
-            if (!continuousScan && selected != null) return@runOnUiThread
-            if (continuousScan && selected != null && incoming.isNotEmpty()) {
-                if (incoming.any { CandidateTracker.isSameAddressFamily(it, selected) &&
-                        (it.details.isBlank() || AddressTextParser.normalizeKey(it.details) == AddressTextParser.normalizeKey(selected.details)) }) {
-                    nextSignature = null
-                    nextCount = 0
-                    return@runOnUiThread
-                }
-                val incomingSignature = CandidateTracker.identity(incoming.first())
-                if (incomingSignature == nextSignature) nextCount++ else {
-                    nextSignature = incomingSignature
-                    nextCount = 1
-                }
-                if (nextCount < REQUIRED_NEW_ADDRESS_FRAMES) return@runOnUiThread
-                selectedCandidate = null
-                candidateTracker.unfreeze()
-                conversionRequests.invalidate()
-                autoConversion.reset()
-                nextSignature = null
-                nextCount = 0
+            if (selected != null) {
+                // Preserve provider suggestions, explicit choices and another address's results.
+                if (selected.manualOnly || apiAlternatives.isNotEmpty() ||
+                    incoming.none { !it.manualOnly && CandidateTracker.isSameAddressFamily(it, selected) }) return@runOnUiThread
+                candidateTracker.freeze(selected, (displayedCandidates + incoming).distinctBy(CandidateTracker::identity))
+                renderCandidates(candidateTracker.update(emptyList(), now))
+                return@runOnUiThread
             }
-
-            val candidates = candidateTracker.update(incoming, now)
-            renderCandidates(candidates)
-            diagnosticExtraction = incoming.joinToString("\n") { it.text + " " + it.details }
-            diagnosticStage = if (incoming.isEmpty()) { if (lastOcrSourceText.isBlank()) "OCR" else "주소 추출" } else "검색 전"
-            updateDiagnostics()
-            if (frozenFrame && incoming.isEmpty()) binding.statusText.setText(R.string.selection_not_found)
-            if (selectedCandidate != null) return@runOnUiThread
-            // List visibility and weaker alternatives must not hold up a clear address.
-            (if (frozenFrame) AutoConversionPolicy(1) else autoConversion).update(incoming, dictionaryBacked)?.let(::acceptCandidate)
+            renderCandidates(candidateTracker.update(incoming, now))
         }
     }
 
@@ -726,7 +718,9 @@ class MainActivity : AppCompatActivity() {
                 isAllCaps = false
                 val selected = CandidateTracker.identity(candidate) == selectedKey
                 text = when {
-                    candidate.manualOnly -> getString(R.string.similar_address_manual, candidate.text) + "\n→ ${candidate.alternativeTarget}"
+                    candidate.manualOnly && candidate.alternativeTarget.isNotBlank() ->
+                        getString(R.string.similar_address_manual, candidate.text) + "\n→ ${candidate.alternativeTarget}"
+                    candidate.manualOnly -> "사전 후보 · 직접 선택\n${candidate.text}"
                     selected -> getString(R.string.candidate_selected, candidate.text)
                     candidate.completeness == CandidateCompleteness.PARTIAL ->
                         getString(R.string.candidate_partial, candidate.text)
@@ -758,14 +752,15 @@ class MainActivity : AppCompatActivity() {
         binding.candidateEmptyText.isVisible = candidates.isEmpty()
     }
 
-    private fun acceptCandidate(candidate: AddressCandidate) {
+    private fun acceptCandidate(candidate: AddressCandidate, manual: Boolean = true) {
         val key = CandidateTracker.identity(candidate)
         val explicitlyChosenResult = if (candidate.manualOnly) apiAlternatives[key] else null
         if (lastSubmittedKey == key && !awaitingNetwork && !editingAddress) return
         editingAddress = false
         invalidateCandidateWork()
-        autoConversion.reset()
         if (candidate.completeness != CandidateCompleteness.COMPLETE) {
+            autoConversion.reset()
+            diagnostics.finish("번호 입력/인식 대기", ""); updateDiagnostics()
             // Keep reading the number after a partial candidate is selected.
             conversionRequests.invalidate()
             awaitingNetwork = false
@@ -782,6 +777,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val alternatives = displayedCandidates.toList()
+        autoConversion.onSelected(SystemClock.elapsedRealtime(), if (manual) latestRawCandidates else emptyList())
+        apiAlternatives.clear()
         candidateTracker.freeze(candidate, alternatives)
         selectedCandidate = candidate
         if (!continuousScan || frozenFrame) scannerPaused = true
@@ -805,10 +802,7 @@ class MainActivity : AppCompatActivity() {
             binding.addressInputLayout.error = getString(R.string.enter_complete_address)
             return
         }
-        val parts = AddressTextParser.parseParts(candidate.text)
-        val text = if (parts?.prefix?.isEmpty() == true && !currentRegion.isEmpty) {
-            "${currentRegion.displayName()} ${candidate.text}"
-        } else candidate.text
+        val text = RawAddressCandidates.withDefaultRegion(candidate, currentRegion).text
         acceptCandidate(candidate.copy(text = text, details = AddressDetails.extract(raw, candidate.text)))
     }
 
@@ -830,7 +824,7 @@ class MainActivity : AppCompatActivity() {
         binding.roadAddressText.setTextColor(ContextCompat.getColor(this, R.color.ink))
         binding.roadAddressText.setText(R.string.converting_address)
         binding.statusText.setText(R.string.dictionary_candidate_waiting_api)
-        diagnosticStage = "검색 중"; diagnosticSearch = ""; updateDiagnostics()
+        diagnostics.begin(parsed); updateDiagnostics()
 
         converter.convert(parsed) { outcome ->
             runOnUiThread {
@@ -863,7 +857,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showSuccess(result: AddressResult) {
-        diagnosticStage = "완료"; diagnosticSearch = result.convertedAddress; updateDiagnostics()
+        diagnostics.finish("완료", result.convertedAddress); updateDiagnostics()
         awaitingNetwork = false
         currentMapAddress = result.convertedAddress
         binding.mapButton.isEnabled = true
@@ -882,7 +876,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showError(message: String) {
-        diagnosticStage = "검색"; diagnosticSearch = message; updateDiagnostics()
+        diagnostics.finish("검색 실패", message); updateDiagnostics()
         awaitingNetwork = false
         currentMapAddress = null
         binding.mapButton.isEnabled = false
@@ -893,7 +887,7 @@ class MainActivity : AppCompatActivity() {
 
     /** OCR/dictionary selection is valid local work, not proof of a real building address. */
     private fun showLocalResult(offline: Boolean, message: String = "") {
-        diagnosticStage = "검색"; diagnosticSearch = if (offline) "오프라인" else message; updateDiagnostics()
+        diagnostics.finish(if (offline) "오프라인 · 변환 대기" else "검색 오류", if (offline) "오프라인" else message); updateDiagnostics()
         awaitingNetwork = true
         currentMapAddress = null
         binding.mapButton.isEnabled = false
@@ -985,7 +979,7 @@ class MainActivity : AppCompatActivity() {
     private fun togglePause() {
         scannerPaused = !scannerPaused
         invalidateCandidateWork()
-        autoConversion.reset()
+        autoConversion.pause()
         updateScanButton()
     }
 
@@ -1009,6 +1003,7 @@ class MainActivity : AppCompatActivity() {
     private fun resumeScanning(clearResult: Boolean) {
         editingAddress = false
         lastSubmittedKey = null
+        latestRawCandidates = emptyList()
         apiAlternatives.clear()
         scannerPaused = false
         conversionRequests.invalidate()
@@ -1017,12 +1012,10 @@ class MainActivity : AppCompatActivity() {
         candidateTracker.clear()
         invalidateCandidateWork()
         autoConversion.reset()
-        nextSignature = null
-        nextCount = 0
         renderCandidates(emptyList())
         if (clearResult) {
             clearDiagnosticImage()
-            lastOcrSourceText = ""; diagnosticExtraction = ""; diagnosticSearch = ""; diagnosticStage = ""
+            lastOcrSourceText = ""; diagnosticExtraction = ""; diagnostics.reset()
             binding.detailText.text = ""; binding.detailText.isVisible = false
             updateDiagnostics()
             currentMapAddress = null
@@ -1137,18 +1130,12 @@ class MainActivity : AppCompatActivity() {
         val sequence: Long
     )
 
-    private data class CandidateBatch(
-        val candidates: List<AddressCandidate>,
-        val dictionaryBacked: Boolean
-    )
-
     private enum class MapProvider(val label: Int) {
         NAVER(R.string.naver_map_app), KAKAO(R.string.kakao_map_app)
     }
 
     companion object {
         private const val ANALYSIS_INTERVAL_MS = 300L
-        private const val REQUIRED_NEW_ADDRESS_FRAMES = 2
         private const val MAX_ADDRESS_CANDIDATES = 5
         private const val PREFERRED_MAP_PROVIDER = "preferred_map_provider"
     }

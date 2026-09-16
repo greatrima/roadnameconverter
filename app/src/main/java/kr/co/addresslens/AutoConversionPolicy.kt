@@ -1,27 +1,45 @@
 package kr.co.addresslens
 
-/** Decide when to start verification, never whether an address actually exists. */
-class AutoConversionPolicy(private val requiredFrames: Int = 2) {
+/** Starts verification of observed addresses; never declares an address to be real. */
+class AutoConversionPolicy(private val replacementFrames: Int = 2, private val minimumIntervalMs: Long = 1_200L) {
     private var pending: String? = null
     private var count = 0
+    private var lastStartedAt: Long? = null
+    private var manuallyChosenFrom = emptyList<AddressCandidate>()
 
-    fun update(candidates: List<AddressCandidate>, dictionaryReady: Boolean): AddressCandidate? {
-        if (!dictionaryReady) { reset(); return null }
+    fun update(candidates: List<AddressCandidate>, selected: AddressCandidate?, nowMs: Long): AddressCandidate? {
         val complete = candidates.filter {
-            !it.manualOnly && it.completeness == CandidateCompleteness.COMPLETE &&
+            !it.manualOnly && !it.dictionaryCorrected && it.completeness == CandidateCompleteness.COMPLETE &&
                 AddressTextParser.parseParts(it.text)?.number != null
-        }.distinctBy(CandidateTracker::identity).sortedByDescending { it.confidence }
-        val best = complete.firstOrNull() ?: run { reset(); return null }
-        val runnerUp = complete.getOrNull(1)
-        // Exact names can coexist with weaker spelling suggestions without blocking search.
-        val clearWinner = best.confidence >= 88 && (runnerUp == null ||
-            (best.confidence == 100 && runnerUp.confidence < 100) ||
-            best.confidence - runnerUp.confidence >= 8)
-        if (!clearWinner) { reset(); return null }
-        val key = CandidateTracker.identity(best)
-        if (key == pending) count++ else { pending = key; count = 1 }
-        return best.takeIf { count >= requiredFrames }
+        }.distinctBy(CandidateTracker::identity)
+        // Multiple observed addresses need selection, not an arbitrary first-row choice.
+        val next = complete.singleOrNull() ?: run { clearPending(); return null }
+        if (selected != null && manuallyChosenFrom.any { anchor ->
+                CandidateTracker.isSameAddressFamily(next, anchor) &&
+                    (next.details.isBlank() || AddressTextParser.normalizeKey(next.details) == AddressTextParser.normalizeKey(anchor.details))
+            }) {
+            clearPending()
+            return null
+        }
+        if (selected != null && CandidateTracker.isSameAddressFamily(next, selected) &&
+            (next.details.isBlank() || AddressTextParser.normalizeKey(next.details) == AddressTextParser.normalizeKey(selected.details))) {
+            clearPending()
+            return null
+        }
+        if (selected != null) {
+            val key = CandidateTracker.identity(next)
+            if (pending == key) count++ else { pending = key; count = 1 }
+            if (count < replacementFrames) return null
+        }
+        if (lastStartedAt?.let { nowMs - it < minimumIntervalMs } == true) return null
+        onSelected(nowMs)
+        return next
     }
 
-    fun reset() { pending = null; count = 0 }
+    fun onSelected(nowMs: Long, observed: List<AddressCandidate> = emptyList()) {
+        lastStartedAt = nowMs; manuallyChosenFrom = observed.toList(); clearPending()
+    }
+    private fun clearPending() { pending = null; count = 0 }
+    fun pause() { clearPending() }
+    fun reset() { clearPending(); lastStartedAt = null; manuallyChosenFrom = emptyList() }
 }

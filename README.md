@@ -5,7 +5,9 @@
 
 ## Android 소스 코드
 
-v1.12.0 소스와 내장 주소 사전을 공개합니다. APK 설치 파일은 [Releases](https://github.com/greatrima/roadnameconverter/releases)에서 받으실 수 있습니다.
+v1.12.1 소스와 내장 주소 사전을 공개합니다. APK 설치 파일은 [Releases](https://github.com/greatrima/roadnameconverter/releases)에서 받으실 수 있습니다.
+
+이번 버전은 완성된 원문 주소를 사전·연속 인식 대기 없이 먼저 검색하고, 정확한 API 일치 결과만 확정합니다. 사전 교정 후보는 수동 선택으로 구분하며, 개발자 모드의 OCR 상태와 검색 상태를 분리했습니다. [v1.12.1 패치노트](FAST_SEARCH_PATCH_NOTES.md)
 
 ### 직접 빌드하기
 

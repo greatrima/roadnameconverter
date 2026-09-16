@@ -127,9 +127,12 @@ class AddressConverter(
 
     fun close() = executor.shutdown()
 
-    private fun selectOutcome(outcomes: List<ConversionOutcome>): ConversionOutcome =
+    internal fun selectOutcome(outcomes: List<ConversionOutcome>): ConversionOutcome =
         if (outcomes.any { it is ConversionOutcome.Offline }) {
             ConversionOutcome.Offline
+        } else if (outcomes.any { it is ConversionOutcome.NetworkError }) {
+            // A failed provider is not evidence that the address does not exist.
+            outcomes.filterIsInstance<ConversionOutcome.NetworkError>().last()
         } else if (outcomes.any { it is ConversionOutcome.NoExactMatch }) {
             ConversionOutcome.NoExactMatch(outcomes.filterIsInstance<ConversionOutcome.NoExactMatch>()
                 .flatMap { it.suggestions }.distinctBy { AddressTextParser.normalizeKey(it.recognizedAddress) }.take(3))
@@ -372,7 +375,7 @@ class AddressConverter(
 
     private fun finishRequest(key: String, outcome: ConversionOutcome) {
         val callbacks = synchronized(requestLock) {
-            if (outcome is ConversionOutcome.Success || outcome is ConversionOutcome.NotFound) {
+            if (outcome is ConversionOutcome.Success || outcome is ConversionOutcome.NotFound || outcome is ConversionOutcome.NoExactMatch) {
                 cache[key] = outcome
             }
             inFlight.remove(key).orEmpty()

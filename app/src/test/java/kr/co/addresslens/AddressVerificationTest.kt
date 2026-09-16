@@ -57,9 +57,9 @@ class AddressVerificationTest {
     }
 
     @Test fun manualOnlySuggestionsNeverAutoConfirmEvenWithPerfectConfidence() {
-        val policy = AutoConversionPolicy(1)
+        val policy = AutoConversionPolicy()
         val candidate = AddressCandidate("본오동 5-1", AddressKind.PARCEL, manualOnly = true)
-        repeat(5) { assertNull(policy.update(listOf(candidate), true)) }
+        repeat(5) { assertNull(policy.update(listOf(candidate), null, it * 300L)) }
     }
 
     @Test fun editAndOldRequestCannotReplaceNewSelection() {

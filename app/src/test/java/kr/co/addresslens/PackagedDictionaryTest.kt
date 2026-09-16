@@ -80,7 +80,7 @@ class PackagedDictionaryTest {
                 assertFalse(candidate.verified)
             }
             val policy = AutoConversionPolicy()
-            repeat(3) { assertNull(policy.update(uncertain, dictionaryReady = true)) }
+            repeat(3) { assertNull(policy.update(uncertain.map { it.copy(manualOnly = true) }, null, it * 300L)) }
             val restored = engine.candidate("경기도 안산시 단원구 광덕\n동로 25(고잔동. 안산레이\n크타운 푸르지오) 102동 2\n901호", region)
             assertEquals("경기도 안산시 단원구 광덕동로 25", restored?.text)
             assertFalse("Dictionary candidates are not API-verified buildings", restored!!.verified)

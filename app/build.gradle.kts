@@ -21,8 +21,8 @@ android {
         applicationId = "kr.co.addresslens"
         minSdk = 23
         targetSdk = 35
-        versionCode = 23
-        versionName = "1.12.0"
+        versionCode = 24
+        versionName = "1.12.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val vworldApiKey = localProperties.getProperty("VWORLD_API_KEY")
