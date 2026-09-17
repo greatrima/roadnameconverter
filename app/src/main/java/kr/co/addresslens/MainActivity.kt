@@ -17,6 +17,7 @@ import android.os.SystemClock
 import android.text.TextUtils
 import android.util.Size
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -87,6 +88,9 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var dictionaryReady = false
     @Volatile private var scannerPaused = false
     private var camera: Camera? = null
+    private var requestedZoomRatio = 1f
+    private var zoomRequestId = 0L
+    private val zoomKeysDown = mutableSetOf<Int>()
     private var lastAnalysisAt = 0L
     private var automaticUpdateCheckStarted = false
     private val conversionRequests = ConversionRequestGate()
@@ -115,6 +119,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedZoomRatio = savedInstanceState?.getFloat("camera_zoom_ratio", 1f) ?: 1f
         configureSystemBars()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -367,6 +372,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateFrozenControls() {
+        binding.zoomText.isVisible = !frozenFrame
         binding.freezeButton.isVisible = ApiSettingsStore.freezeSelection(this) && !frozenFrame
         binding.freezeButton.isEnabled = !capturePending
         binding.frozenSelection.isVisible = frozenFrame
@@ -456,12 +462,60 @@ class MainActivity : AppCompatActivity() {
                         .setViewPort(checkNotNull(binding.previewView.viewPort)).build()
                     provider.unbindAll()
                     camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, group)
+                    camera?.cameraInfo?.zoomState?.observe(this) { state ->
+                        binding.zoomText.text = getString(R.string.camera_zoom_hint, state.zoomRatio)
+                    }
+                    applyCameraZoom(requestedZoomRatio)
                     binding.flashButton.isVisible = camera?.cameraInfo?.hasFlashUnit() == true
                 } catch (_: Exception) {
                     Toast.makeText(this, R.string.camera_start_failed, Toast.LENGTH_LONG).show()
                 }
             }, ContextCompat.getMainExecutor(this))
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val key = event.keyCode
+        if (key != KeyEvent.KEYCODE_VOLUME_UP && key != KeyEvent.KEYCODE_VOLUME_DOWN) {
+            return super.dispatchKeyEvent(event)
+        }
+        // Consume the matching release even if a capture or editor opened during the press.
+        if (event.action == KeyEvent.ACTION_UP && zoomKeysDown.remove(key)) return true
+        val canZoom = camera != null && hasWindowFocus() && !frozenFrame && !capturePending &&
+            !editingAddress && !binding.addressInput.hasFocus() &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        if (event.action == KeyEvent.ACTION_DOWN && canZoom) {
+            zoomKeysDown.add(key)
+            // Android sends repeated DOWN events while a volume key is held.
+            val factor = if (key == KeyEvent.KEYCODE_VOLUME_UP) 1.1f else 1f / 1.1f
+            applyCameraZoom(requestedZoomRatio * factor)
+            return true
+        }
+        if (key in zoomKeysDown) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun applyCameraZoom(ratio: Float) {
+        val activeCamera = camera ?: return
+        val state = activeCamera.cameraInfo.zoomState.value ?: return
+        requestedZoomRatio = ratio.coerceIn(state.minZoomRatio, state.maxZoomRatio)
+        val requestId = ++zoomRequestId
+        val pending = activeCamera.cameraControl.setZoomRatio(requestedZoomRatio)
+        pending.addListener({
+            try {
+                pending.get()
+            } catch (_: Exception) {
+                // An older request can be superseded by a long press; only recover the latest.
+                if (requestId == zoomRequestId) {
+                    requestedZoomRatio = activeCamera.cameraInfo.zoomState.value?.zoomRatio ?: 1f
+                }
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putFloat("camera_zoom_ratio", requestedZoomRatio)
+        super.onSaveInstanceState(outState)
     }
 
     @SuppressLint("UnsafeOptInUsageError")
@@ -832,6 +886,10 @@ class MainActivity : AppCompatActivity() {
         converter.convert(parsed) { outcome ->
             runOnUiThread {
                 if (isFinishing || isDestroyed || !conversionRequests.finish(requestId)) return@runOnUiThread
+                if (ApiSettingsStore.offlineMode(this)) {
+                    showLocalResult(offline = true)
+                    return@runOnUiThread
+                }
                 binding.convertButton.isEnabled = true
                 when (outcome) {
                     is ConversionOutcome.Success -> showSuccess(outcome.result)
@@ -910,6 +968,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        zoomKeysDown.clear()
         invalidateCandidateWork()
         if (capturePending) { capturePending = false; scannerPaused = false }
         networkAvailability.stop()
@@ -937,6 +996,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        onConnectivityChanged(NetworkAvailability.isOnline(this))
         if (::converter.isInitialized) {
             val credentials = ApiSettingsStore.load(this)
             converter.updateApiKeys(
@@ -1041,7 +1101,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkForUpdatesAutomatically() {
         if (isFinishing || isDestroyed || !NetworkAvailability.isOnline(this)) return
-        UpdateChecker.check(BuildConfig.VERSION_NAME) { result ->
+        UpdateChecker.check(this, BuildConfig.VERSION_NAME) { result ->
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 when (result) {

@@ -61,6 +61,18 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.settingsToolbar.setNavigationOnClickListener { finish() }
         binding.regionCard.setOnClickListener { requestRegionPicker() }
+        binding.offlineModeSwitch.isChecked = ApiSettingsStore.offlineMode(this)
+        binding.offlineModeSwitch.setOnCheckedChangeListener { _, checked ->
+            ApiSettingsStore.preferences(this).edit()
+                .putBoolean(ApiSettingsStore.OFFLINE_MODE, checked).apply()
+            if (checked) {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.offline_mode_option)
+                    .setMessage(R.string.offline_mode_warning)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            }
+        }
         binding.candidateListSwitch.isChecked = ApiSettingsStore.showCandidateList(this)
         binding.candidateListSwitch.setOnCheckedChangeListener { _, checked ->
             ApiSettingsStore.preferences(this).edit()
@@ -435,7 +447,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun checkForUpdates() {
         binding.updateCard.isEnabled = false
         binding.updateStatusText.setText(R.string.checking_for_updates)
-        UpdateChecker.check(BuildConfig.VERSION_NAME) { result ->
+        UpdateChecker.check(this, BuildConfig.VERSION_NAME) { result ->
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 binding.updateCard.isEnabled = true

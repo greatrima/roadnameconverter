@@ -18,6 +18,12 @@
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_gravity="top|end" android:layout_margin="4dp" android:minHeight="48dp"
             android:text="@string/freeze_frame" android:visibility="gone" />
+        <TextView android:id="@+id/zoomText"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end" android:layout_margin="8dp"
+            android:padding="6dp" android:background="#99000000"
+            android:textColor="@android:color/white" android:textSize="12sp"
+            android:importantForAccessibility="no" />
     </FrameLayout>
     <androidx.constraintlayout.widget.ConstraintLayout android:id="@+id/informationPanel"
         android:layout_width="0dp" android:layout_height="0dp" android:background="@color/surface"
@@ -130,3 +136,4 @@
             android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/grant_permission" />
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>
+
