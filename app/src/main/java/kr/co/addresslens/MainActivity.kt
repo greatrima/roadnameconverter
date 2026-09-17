@@ -894,8 +894,9 @@ class MainActivity : AppCompatActivity() {
                 when (outcome) {
                     is ConversionOutcome.Success -> showSuccess(outcome.result)
                     ConversionOutcome.ApiKeyMissing -> {
-                        showError(getString(R.string.api_required))
-                        openSettings()
+                        val message = "주소 변환용 API 키가 없습니다. 설정에서 등록해 주세요."
+                        showError(message)
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                     }
                     ConversionOutcome.NotFound -> showError(getString(R.string.address_not_verified))
                     is ConversionOutcome.NoExactMatch -> {
