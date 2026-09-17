@@ -15,9 +15,11 @@ iOS의 경우 개발자 등록부터 돈이 들어서 가난한 9급은 그런 �
 
 ## Android 소스 코드
 
-v2.0.0 소스와 내장 주소 사전을 공개합니다. 배포된 APK 설치 파일은 [Releases](https://github.com/greatrima/roadnameconverter/releases)에서 확인하실 수 있습니다.
+v2.0.1 소스와 내장 주소 사전을 공개합니다. 배포된 APK 설치 파일은 [Releases](https://github.com/greatrima/roadnameconverter/releases)에서 확인하실 수 있습니다.
 
-이번 버전은 여러 줄 주소 복원과 하이픈으로 끊긴 부번 처리를 개선했습니다. 미완성 번지를 본번만으로 검색하지 않으며 정확한 API 일치 결과만 확정합니다. 하단 버튼은 왼쪽 주소 변환 / 오른쪽 다시 인식 순서입니다. [v2.0.0 패치노트](RELEASE_NOTES_v2.0.0.md)
+이번 버전은 버튼별 표시 설정과 주소 복사, 수동 오프라인 모드와 볼륨키 확대·축소를 포함합니다. 배포명과 APK 내부 버전이 달라 업데이트 안내가 반복되던 문제를 수정했습니다. [v2.0.1 패치노트](RELEASE_NOTES_v2.0.1.md)
+
+이전 버전의 여러 줄 주소 복원·미완성 번지 처리·정확한 API 일치 검증은 유지합니다. [v2.0.0 패치노트](RELEASE_NOTES_v2.0.0.md)
 
 ### 직접 빌드하기
 

@@ -87,7 +87,7 @@ object UpdateChecker {
         return false
     }
 
-    private fun parseLatestRelease(body: String, currentVersion: String): UpdateCheckResult {
+    internal fun parseLatestRelease(body: String, currentVersion: String): UpdateCheckResult {
         return try {
             val release = JSONObject(body)
             val tag = release.optString("tag_name").trim()
