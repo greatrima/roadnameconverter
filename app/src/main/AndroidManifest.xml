@@ -13,6 +13,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AddressLens"
         android:usesCleartextTraffic="false">
+        <activity android:name=".MenuActivity" android:exported="false" />
         <activity
             android:name=".SettingsActivity"
             android:exported="false" />

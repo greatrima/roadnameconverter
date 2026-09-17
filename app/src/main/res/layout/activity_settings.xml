@@ -31,6 +31,15 @@
             android:paddingEnd="20dp"
             android:paddingBottom="32dp">
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/menuButton"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="56dp" android:layout_marginBottom="20dp"
+                android:text="@string/menu_title" android:textSize="16sp"
+                android:gravity="start|center_vertical" app:icon="@drawable/ic_chevron_right"
+                app:iconGravity="end" app:cornerRadius="12dp" />
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

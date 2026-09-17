@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="menu_title">메뉴</string>
+    <string name="address_search_title">주소 검색</string>
+    <string name="address_input_hint">주소를 입력하거나 수정하세요</string>
+    <string name="menu_region">지역 선택</string>
+    <string name="menu_summary">기본 화면에 표시할 버튼을 선택하세요. 끄면 버튼만 숨겨지고 기능은 유지됩니다.</string>
+    <string name="menu_required_controls">다시 인식과 설정은 항상 사용할 수 있습니다. 촬영 재개와 카메라 권한 허용은 필요한 상황에 표시됩니다.\n화면 정지·선택 영역 인식은 해당 기능을 켰을 때 표시됩니다.</string>
+    <string name="back_to_settings">설정으로 돌아가기</string>
+    <string name="copy_input_address">인식 주소 복사</string>
+    <string name="copy_result_address">변환 주소 복사</string>
+    <string name="address_copied">주소를 복사했습니다</string>
     <string name="app_name">도로명변환기</string>
     <string name="camera_permission_needed">주소를 촬영하려면 카메라 권한이 필요합니다.</string>
     <string name="grant_permission">카메라 권한 허용</string>

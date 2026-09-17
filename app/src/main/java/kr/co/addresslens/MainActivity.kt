@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -96,10 +98,17 @@ class MainActivity : AppCompatActivity() {
     private val conversionRequests = ConversionRequestGate()
     private var awaitingNetwork = false
     private var internetAvailable = true
-    private var currentMapAddress: String? = null
+    private val addressCopyState = AddressCopyState()
+    private var currentMapAddress: String?
+        get() = addressCopyState.convertedAddress
+        set(value) {
+            addressCopyState.convertedAddress = value
+            if (::binding.isInitialized) updateCopyButtons()
+        }
     private var currentRegion = RegionSelection()
     private var showCandidateList = false
     private var continuousScan = false
+    private var keyboardVisible = false
     private var selectedCandidate: AddressCandidate? = null
     private var displayedCandidates = emptyList<AddressCandidate>()
     private var renderedCandidateKey = ""
@@ -140,7 +149,8 @@ class MainActivity : AppCompatActivity() {
             credentials.naverClientId,
             credentials.naverClientSecret,
             credentials.kakaoRestApiKey,
-            hasInternet = { NetworkAvailability.isOnline(applicationContext) }
+            hasInternet = { !ApiSettingsStore.offlineMode(applicationContext) &&
+                NetworkAvailability.isOnline(applicationContext) }
         )
         configureActions()
         loadDictionary()
@@ -173,7 +183,21 @@ class MainActivity : AppCompatActivity() {
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+            keyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+            updateCameraViewport()
             insets
+        }
+        binding.root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateCameraViewport() }
+    }
+
+    private fun updateCameraViewport() {
+        val available = binding.root.height - binding.root.paddingTop - binding.root.paddingBottom
+        if (available <= 0) return
+        val height = if (keyboardVisible) 0 else minOf(
+            resources.getDimensionPixelSize(R.dimen.camera_viewport_height), (available * 0.3f).toInt()
+        )
+        if (binding.cameraPane.layoutParams.height != height) {
+            binding.cameraPane.layoutParams = binding.cameraPane.layoutParams.apply { this.height = height }
         }
     }
 
@@ -194,10 +218,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun configureActions() = with(binding) {
+        copyInputButton.setOnClickListener {
+            addressCopyState.updateInput(addressInput.text?.toString().orEmpty())
+            copyAddress(addressCopyState.inputAddress)
+        }
+        copyResultButton.setOnClickListener { copyAddress(addressCopyState.convertedAddress) }
         freezeButton.setOnClickListener { hideKeyboard(); freezeCameraFrame() }
         recognizeSelectionButton.setOnClickListener { hideKeyboard(); recognizeFrozenSelection() }
         resumeCameraButton.setOnClickListener { hideKeyboard(); resumeCameraFrame() }
-        resetRecognitionButton.setOnClickListener { hideKeyboard(); resumeScanning(clearResult = true) }
         frozenSelection.onSelectionChanged = {
             if (frozenFrame) {
                 invalidateCandidateWork()
@@ -231,6 +259,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         addressInput.doAfterTextChanged {
+            addressCopyState.updateInput(it?.toString().orEmpty())
+            updateCopyButtons()
             if (addressInput.hasFocus()) {
                 editingAddress = true
                 invalidateCandidateWork()
@@ -238,6 +268,11 @@ class MainActivity : AppCompatActivity() {
                 diagnostics.finish("편집 중 · 검색 취소", ""); updateDiagnostics()
                 currentMapAddress = null
                 mapButton.isEnabled = false
+                roadAddressText.setText(R.string.waiting_road)
+                roadAddressText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.ink))
+                convertedAddressLabel.setText(R.string.converted_label)
+                statusText.text = ""
+                detailText.isVisible = false
                 convertButton.isEnabled = true
             }
         }
@@ -258,8 +293,9 @@ class MainActivity : AppCompatActivity() {
         scanAgainButton.setOnClickListener {
             hideKeyboard()
             if (frozenFrame) recognizeFrozenSelection()
-            else if (continuousScan) togglePause() else resumeScanning(clearResult = true)
+            else resumeScanning(clearResult = true)
         }
+        pauseScanButton.setOnClickListener { hideKeyboard(); togglePause() }
         mapButton.setOnClickListener { hideKeyboard(); openCurrentAddressInMap(forceChooser = false) }
         mapButton.setOnLongClickListener {
             hideKeyboard()
@@ -271,6 +307,33 @@ class MainActivity : AppCompatActivity() {
             if (!info.hasFlashUnit()) return@setOnClickListener
             camera?.cameraControl?.enableTorch(info.torchState.value != 1)
         }
+    }
+
+    private fun copyAddress(address: String?) {
+        if (address.isNullOrBlank()) return
+        (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .setPrimaryClip(ClipData.newPlainText(getString(R.string.recognized_label), address))
+        Toast.makeText(this, R.string.address_copied, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun updateCopyButtons() {
+        binding.copyInputButton.isEnabled = addressCopyState.inputAddress != null
+        binding.copyResultButton.isEnabled = addressCopyState.convertedAddress != null
+    }
+
+    private fun applyMenuVisibility() = with(binding) {
+        regionButton.isVisible = ApiSettingsStore.showMenuButton(this@MainActivity, MenuButton.REGION)
+        flashButton.isVisible = ApiSettingsStore.showMenuButton(this@MainActivity, MenuButton.FLASH) &&
+            camera?.cameraInfo?.hasFlashUnit() == true
+        mapButton.isVisible = ApiSettingsStore.showMenuButton(this@MainActivity, MenuButton.MAP)
+        convertButton.isVisible = ApiSettingsStore.showMenuButton(this@MainActivity, MenuButton.CONVERT)
+        copyInputButton.isVisible = ApiSettingsStore.showMenuButton(this@MainActivity, MenuButton.COPY_INPUT)
+        copyResultButton.isVisible = ApiSettingsStore.showMenuButton(this@MainActivity, MenuButton.COPY_RESULT)
+        recognizeSelectionButton.isVisible = frozenFrame &&
+            ApiSettingsStore.showMenuButton(this@MainActivity, MenuButton.RECOGNIZE_SELECTION)
+        freezeButton.isVisible = ApiSettingsStore.freezeSelection(this@MainActivity) && !frozenFrame &&
+            ApiSettingsStore.showMenuButton(this@MainActivity, MenuButton.FREEZE)
+        updateCopyButtons()
     }
 
     private fun configureKeyboardBackHandling() {
@@ -373,7 +436,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateFrozenControls() {
         binding.zoomText.isVisible = !frozenFrame
-        binding.freezeButton.isVisible = ApiSettingsStore.freezeSelection(this) && !frozenFrame
+        applyMenuVisibility()
         binding.freezeButton.isEnabled = !capturePending
         binding.frozenSelection.isVisible = frozenFrame
         binding.frozenActions.isVisible = frozenFrame
@@ -466,7 +529,7 @@ class MainActivity : AppCompatActivity() {
                         binding.zoomText.text = getString(R.string.camera_zoom_hint, state.zoomRatio)
                     }
                     applyCameraZoom(requestedZoomRatio)
-                    binding.flashButton.isVisible = camera?.cameraInfo?.hasFlashUnit() == true
+                    applyMenuVisibility()
                 } catch (_: Exception) {
                     Toast.makeText(this, R.string.camera_start_failed, Toast.LENGTH_LONG).show()
                 }
@@ -1048,13 +1111,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateScanButton() {
-        binding.resetRecognitionButton.isVisible = continuousScan && !frozenFrame
-        binding.scanAgainButton.setText(when {
-            frozenFrame -> R.string.scan_again
-            !continuousScan -> R.string.scan_again
-            scannerPaused -> R.string.resume_scan
-            else -> R.string.pause_scan
-        })
+        binding.pauseScanButton.isVisible = continuousScan && !frozenFrame
+        binding.pauseScanButton.setText(if (scannerPaused) R.string.resume_scan else R.string.pause_scan)
     }
 
     private fun invalidateCandidateWork() {

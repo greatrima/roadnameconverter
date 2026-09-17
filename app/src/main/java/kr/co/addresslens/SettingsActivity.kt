@@ -60,6 +60,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         binding.settingsToolbar.setNavigationOnClickListener { finish() }
+        binding.menuButton.setOnClickListener { startActivity(Intent(this, MenuActivity::class.java)) }
         binding.regionCard.setOnClickListener { requestRegionPicker() }
         binding.offlineModeSwitch.isChecked = ApiSettingsStore.offlineMode(this)
         binding.offlineModeSwitch.setOnCheckedChangeListener { _, checked ->

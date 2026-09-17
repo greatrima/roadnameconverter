@@ -26,6 +26,13 @@ object ApiSettingsStore {
     const val DEVELOPER_MODE = "developer_mode"
     const val OFFLINE_MODE = "offline_mode"
 
+    fun showMenuButton(context: Context, button: MenuButton): Boolean =
+        preferences(context).getBoolean(button.preferenceKey, true)
+
+    fun setMenuButtonVisible(context: Context, button: MenuButton, visible: Boolean) {
+        preferences(context).edit().putBoolean(button.preferenceKey, visible).apply()
+    }
+
     fun offlineMode(context: Context): Boolean =
         preferences(context).getBoolean(OFFLINE_MODE, false)
 

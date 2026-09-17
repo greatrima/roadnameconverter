@@ -50,6 +50,7 @@ android {
         viewBinding = true
         buildConfig = true
     }
+    testOptions.unitTests.isIncludeAndroidResources = true
 }
 
 dependencies {
@@ -71,6 +72,7 @@ dependencies {
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
 
 // Verify the dictionary shipped inside the APK, not just the source asset.
