@@ -66,10 +66,14 @@ class NetworkAvailability(context: Context) {
 
     companion object {
         fun isOnline(context: Context): Boolean = try {
-            val manager = context.getSystemService(ConnectivityManager::class.java)
-            val capabilities = manager?.getNetworkCapabilities(manager.activeNetwork)
-            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
-                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            if (ApiSettingsStore.offlineMode(context)) {
+                false
+            } else {
+                val manager = context.getSystemService(ConnectivityManager::class.java)
+                val capabilities = manager?.getNetworkCapabilities(manager.activeNetwork)
+                capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            }
         } catch (_: RuntimeException) {
             false
         }

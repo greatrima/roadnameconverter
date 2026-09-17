@@ -50,6 +50,7 @@ object DictionaryUpdater {
         executor.execute {
             var connection: HttpURLConnection? = null
             try {
+                check(NetworkAvailability.isOnline(appContext)) { appContext.getString(R.string.dictionary_update_offline) }
                 connection = open(URL(RELEASES_URL))
                 if (connection.responseCode !in 200..299) {
                     callback(DictionaryUpdateResult.Error("GitHub 응답 코드 ${connection.responseCode}"))
@@ -71,6 +72,7 @@ object DictionaryUpdater {
                     return@execute
                 }
                 connection.disconnect()
+                check(NetworkAvailability.isOnline(appContext)) { appContext.getString(R.string.dictionary_update_offline) }
                 connection = open(URL(downloadUrl))
                 if (connection.responseCode !in 200..299) {
                     callback(DictionaryUpdateResult.Error("사전 다운로드 응답 코드 ${connection.responseCode}"))
@@ -82,6 +84,7 @@ object DictionaryUpdater {
                     val buffer = ByteArray(16_384)
                     var total = 0L
                     while (true) {
+                        check(NetworkAvailability.isOnline(appContext)) { appContext.getString(R.string.dictionary_update_offline) }
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count

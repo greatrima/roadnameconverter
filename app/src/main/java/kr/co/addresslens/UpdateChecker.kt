@@ -27,8 +27,13 @@ object UpdateChecker {
     private const val AUTO_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
     private val executor = Executors.newSingleThreadExecutor()
 
-    fun check(currentVersion: String, callback: (UpdateCheckResult) -> Unit) {
+    fun check(context: Context, currentVersion: String, callback: (UpdateCheckResult) -> Unit) {
+        val app = context.applicationContext
         executor.execute {
+            if (!NetworkAvailability.isOnline(app)) {
+                callback(UpdateCheckResult.Error(app.getString(R.string.update_check_offline)))
+                return@execute
+            }
             var connection: HttpURLConnection? = null
             val result = try {
                 connection = (URL(LATEST_RELEASE_URL).openConnection() as HttpURLConnection).apply {

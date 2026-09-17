@@ -24,6 +24,10 @@ object ApiSettingsStore {
     const val CONTINUOUS_SCAN = "continuous_scan"
     const val FREEZE_SELECTION = "freeze_selection"
     const val DEVELOPER_MODE = "developer_mode"
+    const val OFFLINE_MODE = "offline_mode"
+
+    fun offlineMode(context: Context): Boolean =
+        preferences(context).getBoolean(OFFLINE_MODE, false)
 
     fun preferences(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
